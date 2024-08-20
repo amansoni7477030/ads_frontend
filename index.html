@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player with VAST Non-Linear Video Ad</title>
+  <!-- Video.js CSS -->
+  <link href="https://vjs.zencdn.net/7.21.0/video-js.min.css" rel="stylesheet">
+  <style>
+    body {
+      height: 100vh;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #000;
+      /* Dark background for better contrast */
+    }
+
+    #videoPlayer {
+      width: 80%;
+      height: 80%;
+      max-width: 1200px;
+      /* Max width for large screens */
+      max-height: 675px;
+      /* Max height to maintain aspect ratio */
+      position: relative;
+      overflow: hidden;
+      background-color: #000;
+      /* Match background color */
+      border-radius: 8px;
+      /* Rounded corners for a modern look */
+    }
+
+    .video-js {
+      width: 100%;
+      height: 100%;
+      transition: all 2s ease;
+      pointer-events: none;
+      /* Prevent interaction with the video player */
+    }
+
+    .video-js .vjs-tech {
+      transition: all 2s ease;
+    }
+
+    .video-js.content-minimized .vjs-tech {
+      width: 50%;
+      height: 50%;
+      position: absolute;
+      top: 50%;
+      left: 0;
+      transform: translate(0, -50%);
+    }
+
+    [class^="ad-container-"] {
+      position: absolute;
+      bottom: 30px;
+      /* Increase space from bottom */
+      right: 30px;
+      /* Increase space from right */
+      z-index: 1;
+      transition: all 2s ease;
+      opacity: 0;
+      width: 50%;
+      height: 50%;
+      top: 50%;
+      transform: translate(100%, -50%);
+      border-radius: 8px;
+      /* Rounded corners for ad container */
+      overflow: hidden;
+      /* Hide overflow for rounded corners */
+    }
+
+    [class^="ad-container-"].active {
+      opacity: 1;
+      transform: translate(10%, -50%);
+      /* Adjust the transform for a gap */
+      pointer-events: auto;
+      /* Allow interaction only when ad is active */
+    }
+
+    [class^="ad-container-"] video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .video-js .vjs-control-bar {
+      display: none !important;
+    }
+
+    .video-js .vjs-big-play-button,
+    .video-js .vjs-play-control,
+    .video-js .vjs-mute-control,
+    .video-js .vjs-volume-control,
+    .video-js .vjs-fullscreen-control,
+    .video-js .vjs-progress-control {
+      display: none !important;
+    }
+
+    /* Play button style */
+    #playButtonContainer {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+    }
+
+    #playButton {
+      padding: 15px 30px;
+      font-size: 18px;
+      color: #fff;
+      background-color: #007bff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease, transform 0.2s ease;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    #playButton:hover {
+      background-color: #0056b3;
+      transform: scale(1.05);
+    }
+
+    #playButton:focus {
+      outline: none;
+    }
+
+    #playButton:active {
+      background-color: #004085;
+      transform: scale(0.98);
+    }
+
+    #playButton:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Video.js Player -->
+  <div id="videoPlayer">
+    <video class="video-js vjs-default-skin" controls>
+      <source src="http://192.168.0.18:8080/hls/pix4team.m3u8" type="application/x-mpegURL">
+      Your browser does not support the video tag.
+    </video>
+  </div>
+  <!-- Play Button -->
+  <div id="playButtonContainer">
+    <button id="playButton">Click to Play Live Streaming</button>
+  </div>
+
+  <script src="https://vjs.zencdn.net/7.21.0/video.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const player = videojs(document.querySelector('.video-js'));
+      const playButton = document.getElementById('playButton');
+
+      // Hide the video player initially
+      player.el().style.display = 'none';
+
+      playButton.addEventListener('click', function () {
+        player.el().style.display = 'block'; // Show the video player
+        player.play().catch(error => {
+          console.error('Error attempting to play the video:', error);
+        });
+        playButton.style.display = 'none'; // Hide the play button after starting playback
+      });
+
+      let adTimer = null;
+      let adDuration = 10000; // 10 seconds
+      let adStartTime = 0;
+      let adElapsedTime = 0;
+      let adPaused = false;
+      let currentAdIndex = 0;
+
+      const adUrls = [
+        "https://admedia.getpublica.com/media/prod/global/3ae7da30-9951-4de5-92a0-fb6f0519ae9f/451/1714668430_miller_6secwpt720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/570de8b6-116e-4817-87b8-4bec3f1ad274/451/1714673224_HillShire_Farm720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/79dbef9f-07a1-418c-9f2c-dcd953793e1f/451/1714668624_mm_s_mini720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/593756b4-a7aa-4f88-b992-5e57bd5f349d/451/1673381208_TARGET_15stage720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/fbb6340f-4c6c-4230-baa4-faf0b7f0ab61/451/1714673009_febreeze720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/da5c440b-722e-4e6b-a67a-ebf0f71ba2a9/451/1673448557_dunkin_15720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/9f6f50b0-9baa-4d15-9dc2-5a2d7340ecd3/451/1673381342_Chipotle_30720-low.mp4",
+        "https://admedia.getpublica.com/media/prod/global/3a61f3bc-0441-4726-bf37-9244c7d22de2/451/1714668254_home_depot_decor720-low.mp4"
+      ];
+
+      function getNextAdUrl() {
+        const url = adUrls[currentAdIndex];
+        currentAdIndex = (currentAdIndex + 1) % adUrls.length;
+        return url;
+      }
+
+      function generateVastXml(adUrl) {
+        return `
+          <VAST version="4.2">
+            <Ad>
+              <InLine>
+                <AdSystem>Sample Ad System</AdSystem>
+                <AdTitle>Sample Non-Linear Video Ad</AdTitle>
+                <Impression>
+                  <![CDATA[ https://httpbin.org/get ]]>
+                </Impression>
+                <Creatives>
+                  <Creative>
+                    <NonLinearAds>
+                      <NonLinear width="240" height="135">
+                        <StaticResource creativeType="video/mp4">
+                          <![CDATA[ ${adUrl} ]]>
+                        </StaticResource>
+                        <NonLinearClickThrough>
+                          <![CDATA[ https://www.example.com ]]>
+                        </NonLinearClickThrough>
+                      </NonLinear>
+                      <TrackingEvents>
+                        <Tracking event="start">
+                          <![CDATA[ https://httpbin.org/status/200 ]]>
+                        </Tracking>
+                        <Tracking event="complete">
+                          <![CDATA[ https://httpbin.org/status/200 ]]>
+                        </Tracking>
+                      </TrackingEvents>
+                    </NonLinearAds>
+                  </Creative>
+                </Creatives>
+              </InLine>
+            </Ad>
+          </VAST>`;
+      }
+
+      function playNextAd() {
+        const adUrl = getNextAdUrl();
+        const vastXml = generateVastXml(adUrl);
+        playNonLinearVideoAd(vastXml);
+      }
+
+      function generateRandomClass() {
+        const randomString = Math.random().toString(36).substring(2, 8);
+        return `ad-container-${randomString}`;
+      }
+
+      function detectAdBlocker(callback) {
+        const testAd = document.createElement('div');
+        testAd.innerHTML = '&nbsp;';
+        testAd.className = 'adsbox';
+        document.body.appendChild(testAd);
+        window.setTimeout(function () {
+          if (testAd.offsetHeight === 0) {
+            callback(true);
+          } else {
+            callback(false);
+          }
+          testAd.remove();
+        }, 100);
+      }
+
+      function generateRandomId() {
+        return 'content-' + Math.random().toString(36).substr(2, 9);
+      }
+
+      function playNonLinearVideoAd(vastXml) {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(vastXml, 'text/xml');
+    const adVideoUrl = xmlDoc.querySelector('StaticResource')?.textContent.trim();
+    const clickThroughUrl = xmlDoc.querySelector('NonLinearClickThrough')?.textContent.trim();
+    const impressionUrl = xmlDoc.querySelector('Impression')?.textContent.trim();
+    const trackingEvents = {
+        start: xmlDoc.querySelector('Tracking[event="start"]')?.textContent.trim(),
+        complete: xmlDoc.querySelector('Tracking[event="complete"]')?.textContent.trim(),
+    };
+
+    if (!adVideoUrl) {
+        console.error('Ad video URL not found in VAST XML.');
+        return;
+    }
+
+    const contentId = generateRandomId();
+    const randomClass = generateRandomClass();
+    console.log('Generated random class:', randomClass);
+
+    const adContainer = document.createElement('div');
+    adContainer.className = randomClass;
+    adContainer.id = contentId;
+
+    const videoElement = document.createElement('video');
+    videoElement.autoplay = true;
+    videoElement.muted = true;
+
+    const sourceElement = document.createElement('source');
+    sourceElement.src = adVideoUrl;
+    sourceElement.type = 'video/mp4';
+
+    videoElement.appendChild(sourceElement);
+    adContainer.appendChild(videoElement);
+
+    player.el().appendChild(adContainer);
+
+    console.log('Ad container added to DOM');
+    console.log('Ad container classes:', adContainer.className);
+
+    function handleClick() {
+        if (clickThroughUrl) {
+            window.open(clickThroughUrl, '_blank');
+        }
+    }
+
+    function addClickListener() {
+        videoElement.addEventListener('click', handleClick);
+        console.log('Click listener added to ad video');
+    }
+
+    function removeClickListener() {
+        videoElement.removeEventListener('click', handleClick);
+        console.log('Click listener removed from ad video');
+    }
+
+    videoElement.onloadedmetadata = () => {
+        adDuration = videoElement.duration * 1000; // Set adDuration based on video duration
+        setTimeout(() => {
+            player.el().classList.add('content-minimized');
+            adContainer.classList.add('active');
+            addClickListener();
+            if (impressionUrl) {
+                fetch(impressionUrl, { mode: 'no-cors' }).catch(error => console.error('Failed to fetch impression:', error));
+                console.log('Impression URL fetched');
+            }
+            if (trackingEvents.start) {
+                fetch(trackingEvents.start, { mode: 'no-cors' }).catch(error => console.error('Failed to fetch start event:', error));
+                console.log('Start tracking event fetched');
+            }
+            startAdTimer();
+            console.log('Ad displayed and timer started');
+        }, 5000);
+    };
+
+    function startAdTimer() {
+        adStartTime = Date.now();
+        adTimer = setInterval(updateAdTimer, 100); // Update every 100ms for smoother timing
+    }
+
+    function updateAdTimer() {
+        if (!adPaused) {
+            const currentTime = Date.now();
+            adElapsedTime = currentTime - adStartTime;
+            console.log('Ad elapsed time:', adElapsedTime);
+            if (adElapsedTime >= adDuration) {
+                endAd();
+            }
+        }
+    }
+
+    function pauseAdTimer() {
+        adPaused = true;
+        console.log('Ad timer paused');
+    }
+
+    function resumeAdTimer() {
+        adPaused = false;
+        adStartTime = Date.now() - adElapsedTime; // Adjust start time to account for elapsed time
+        console.log('Ad timer resumed');
+    }
+
+    function endAd() {
+        clearInterval(adTimer);
+        adContainer.style.transform = 'translate(100%, -50%)';
+        adContainer.style.opacity = '0';
+
+        setTimeout(() => {
+            player.el().classList.remove('content-minimized');
+        }, 500);
+
+        removeClickListener();
+
+        setTimeout(() => {
+            adContainer.remove();
+            console.log('Ad container removed from DOM');
+        }, 1000);
+
+        if (trackingEvents.complete) {
+            fetch(trackingEvents.complete, { mode: 'no-cors' }).catch(error => console.error('Failed to fetch complete event:', error));
+            console.log('Complete tracking event fetched');
+        }
+
+        console.log('Ad ended');
+
+        // Schedule the next ad
+        setTimeout(playNextAd, 20000 - adDuration);
+    }
+
+    player.on('pause', () => {
+        videoElement.pause();
+        pauseAdTimer();
+        console.log('Main video paused, ad video paused');
+    });
+
+    player.on('play', () => {
+        videoElement.play();
+        resumeAdTimer();
+        console.log('Main video played, ad video resumed');
+    });
+}
+
+
+      player.on('play', function () {
+        detectAdBlocker(function (isBlocked) {
+          if (isBlocked) {
+            console.log('Ad blocker detected. Attempting to load content anyway.');
+          } else {
+            console.log('No ad blocker detected');
+          }
+          playNextAd();
+          console.log('Ad playback initiated');
+        });
+      });
+    });
+  </script>
+</body>
+
+</html>
